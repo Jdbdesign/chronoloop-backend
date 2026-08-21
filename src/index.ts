@@ -1,1 +1,8 @@
-console.log('chronoloop-backend scaffold — Task 2 replaces this with a real server')
+import { buildApp } from './app.js'
+
+const port = Number(process.env.PORT ?? 4000)
+const app = buildApp()
+
+app.listen(port, () => {
+  console.log(`chronoloop-backend listening on :${port}`)
+})

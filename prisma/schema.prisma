@@ -1,0 +1,140 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Identity & tenancy ──────────────────────────────────────────
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  firstName     String
+  lastName      String
+  bio           String?
+  phone         String?
+  linkedin      String?
+  twitter       String?
+  timezone      String    @default("UTC")
+  language      String    @default("en-US")
+  dateFormat    String    @default("MM/DD/YYYY")
+  timeFormat    String    @default("12h")
+  accentColor   String    @default("#4A90FF")
+  avatarColor   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  memberships     WorkspaceMember[]
+  sessions        Session[]
+  loginAttempts   LoginAttempt[]
+  resetTokens     PasswordResetToken[]
+  invitesSent     WorkspaceInvite[]     @relation("InvitedBy")
+  // comments Comment[] — restored in B2 (Tasks) when Comment is created
+}
+
+model Workspace {
+  id                 String    @id @default(cuid())
+  name               String
+  slug               String    @unique
+  description        String?
+  currency           String    @default("USD")
+  fiscalYearStart    Int       @default(1)
+  weekStart          String    @default("Monday")
+  sprintDurationDays  Int      @default(14)
+  workHoursStart     String    @default("09:00")
+  workHoursEnd       String    @default("18:00")
+  createdAt          DateTime  @default(now())
+
+  members   WorkspaceMember[]
+  invites   WorkspaceInvite[]
+  // projects Project[] — restored in B3
+  // sprints Sprint[] — restored in B4
+  // tasks Task[] — restored in B2
+  // calendarEvents CalendarEvent[] — restored in B5
+  // integrations WorkspaceIntegration[], webhooks Webhook[], syncRules SyncRule[], apiKeys ApiKey[] — restored in B8
+  // activityLog ActivityLogEntry[] — restored in B6
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum MemberStatus {
+  ACTIVE
+  INVITED
+}
+
+model WorkspaceMember {
+  id           String        @id @default(cuid())
+  workspaceId  String
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id])
+  userId       String
+  user         User          @relation(fields: [userId], references: [id])
+  role         WorkspaceRole @default(MEMBER)
+  jobTitle     String?
+  department   String?
+  location     String?
+  status       MemberStatus  @default(ACTIVE)
+  lastActiveAt DateTime?
+  joinedAt     DateTime      @default(now())
+
+  // assignedTasks Task[] @relation("Assignee") — restored in B2
+  // projectMemberships ProjectMember[] — restored in B3
+  // notificationPrefs NotificationPrefs? — restored in B9
+
+  @@unique([workspaceId, userId])
+}
+
+model WorkspaceInvite {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id])
+  email        String
+  role         WorkspaceRole
+  tokenHash    String    @unique
+  invitedById  String
+  invitedBy    User      @relation("InvitedBy", fields: [invitedById], references: [id])
+  expiresAt    DateTime
+  acceptedAt   DateTime?
+  revokedAt    DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+// ── Auth support ────────────────────────────────────────────────
+model Session {
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id])
+  refreshTokenHash  String    @unique
+  userAgent         String?
+  ipAddress         String?
+  createdAt         DateTime  @default(now())
+  lastSeenAt        DateTime  @default(now())
+  revokedAt         DateTime?
+}
+
+model LoginAttempt {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  emailTried  String
+  success     Boolean
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+}
+
+model PasswordResetToken {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+}
