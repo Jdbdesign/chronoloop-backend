@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import jwt from 'jsonwebtoken'
-import { signAccessToken, verifyAccessToken, signRefreshToken, hashToken } from '../../../src/lib/jwt.js'
+import {
+  signAccessToken,
+  verifyAccessToken,
+  signRefreshToken,
+  hashToken,
+  REFRESH_TOKEN_TTL_MS,
+} from '../../../src/lib/jwt.js'
 import { env } from '../../../src/config/env.js'
 
 describe('access tokens', () => {
@@ -46,5 +52,11 @@ describe('refresh tokens', () => {
   it('generates a 64-character hex token (32 bytes)', () => {
     const { token } = signRefreshToken()
     expect(token).toMatch(/^[0-9a-f]{64}$/)
+  })
+})
+
+describe('REFRESH_TOKEN_TTL_MS', () => {
+  it('is 30 days', () => {
+    expect(REFRESH_TOKEN_TTL_MS).toBe(30 * 24 * 60 * 60 * 1000)
   })
 })
