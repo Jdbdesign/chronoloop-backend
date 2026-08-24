@@ -1,8 +1,11 @@
+import 'express-async-errors'
 import express, { type Express } from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import cookieParser from 'cookie-parser'
 import { healthRouter } from './routes/health.js'
+import { errorHandler } from './middleware/errorHandler.js'
+import { env } from './config/env.js'
 
 export function buildApp(): Express {
   const app = express()
@@ -10,7 +13,7 @@ export function buildApp(): Express {
   app.use(helmet())
   app.use(
     cors({
-      origin: process.env.CORS_ORIGIN,
+      origin: env.CORS_ORIGIN,
       credentials: true,
     }),
   )
@@ -18,6 +21,8 @@ export function buildApp(): Express {
   app.use(cookieParser())
 
   app.use('/health', healthRouter)
+
+  app.use(errorHandler)
 
   return app
 }
