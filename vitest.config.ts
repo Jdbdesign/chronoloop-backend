@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { defineConfig, configDefaults } from 'vitest/config'
 
 export default defineConfig({
   test: {
@@ -9,5 +9,12 @@ export default defineConfig({
     // bcrypt cost-12 hashing; multi-round-trip tests can exceed the 5s default.
     testTimeout: 15000,
     hookTimeout: 15000,
+    // .worktrees (gitignored, used for isolated per-task branches) isn't in
+    // vitest's default excludes, so a worktree left in place while `pnpm test`
+    // runs from the main checkout gets its own test/ picked up as a second
+    // copy of the suite — doubling load on the shared Neon test branch and
+    // risking connection exhaustion. Found 2026-08-25 when a stale task-8
+    // worktree caused exactly that.
+    exclude: [...configDefaults.exclude, '.worktrees/**'],
   },
 })
