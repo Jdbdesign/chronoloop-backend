@@ -5,7 +5,7 @@ import { requireWorkspaceMember } from '../middleware/requireWorkspaceMember.js'
 import { requireRole } from '../middleware/requireRole.js'
 import { db } from '../db/client.js'
 import { AppError } from '../lib/errors.js'
-import { TASK_SELECT, withOverdue, parseTaskId, assertWorkspaceTask } from '../lib/taskAccess.js'
+import { TASK_SELECT, withOverdue, parseTaskId, assertWorkspaceTask, fetchTaskDTO } from '../lib/taskAccess.js'
 
 export const tasksByWorkspaceRouter = Router({ mergeParams: true })
 
@@ -166,5 +166,22 @@ tasksRouter.post(
       select: TASK_SELECT,
     })
     res.json(withOverdue(updated))
+  },
+)
+
+const createSubtaskSchema = z.object({ text: z.string().min(1) })
+
+tasksRouter.post(
+  '/:id/subtasks',
+  requireAuth,
+  requireWorkspaceMember,
+  requireRole('CREATE_TASKS'),
+  async (req, res) => {
+    const taskId = parseTaskId(req.params.id)
+    await assertWorkspaceTask(req.workspaceMember!.workspaceId, taskId)
+    const { text } = createSubtaskSchema.parse(req.body)
+    const order = await db.subtask.count({ where: { taskId } })
+    await db.subtask.create({ data: { taskId, text, order } })
+    res.status(201).json(await fetchTaskDTO(taskId))
   },
 )

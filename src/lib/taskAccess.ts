@@ -57,3 +57,19 @@ export const TASK_SELECT = {
 export function withOverdue<T extends { status: string; due: Date | null }>(task: T) {
   return { ...task, overdue: task.status !== 'DONE' && task.due != null && task.due < new Date() }
 }
+
+export async function fetchTaskDTO(taskId: number) {
+  const task = await db.task.findUniqueOrThrow({ where: { id: taskId }, select: TASK_SELECT })
+  return withOverdue(task)
+}
+
+export async function assertWorkspaceSubtask(workspaceId: string, subtaskId: string): Promise<{ taskId: number }> {
+  const subtask = await db.subtask.findUnique({
+    where: { id: subtaskId },
+    select: { taskId: true, task: { select: { workspaceId: true, deletedAt: true } } },
+  })
+  if (!subtask || subtask.task.workspaceId !== workspaceId || subtask.task.deletedAt) {
+    throw new AppError(404, 'NOT_FOUND', 'Subtask not found.')
+  }
+  return { taskId: subtask.taskId }
+}
