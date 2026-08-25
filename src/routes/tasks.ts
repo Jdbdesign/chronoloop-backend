@@ -185,3 +185,19 @@ tasksRouter.post(
     res.status(201).json(await fetchTaskDTO(taskId))
   },
 )
+
+const createCommentSchema = z.object({ text: z.string().min(1) })
+
+tasksRouter.post(
+  '/:id/comments',
+  requireAuth,
+  requireWorkspaceMember,
+  requireRole('CREATE_TASKS'),
+  async (req, res) => {
+    const taskId = parseTaskId(req.params.id)
+    await assertWorkspaceTask(req.workspaceMember!.workspaceId, taskId)
+    const { text } = createCommentSchema.parse(req.body)
+    await db.comment.create({ data: { taskId, authorId: req.userId!, text } })
+    res.status(201).json(await fetchTaskDTO(taskId))
+  },
+)
