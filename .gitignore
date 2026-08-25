@@ -4,3 +4,4 @@ dist
 .env.test
 .env.*.local
 *.log
+.worktrees
