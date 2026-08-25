@@ -73,6 +73,13 @@ const DUMMY_PASSWORD_HASH = '$2b$12$FDazVLFxZhWx7u3J7pTkFe0TuoUojoq0nzAQ3154IP/x
 const forgotPasswordSchema = z.object({ email: z.string().email() })
 const resetPasswordSchema = z.object({ token: z.string().min(1), newPassword: z.string().min(8) })
 
+const acceptInviteSchema = z.object({
+  token: z.string().min(1),
+  password: z.string().min(8),
+  firstName: z.string().min(1),
+  lastName: z.string().min(1),
+})
+
 export function createAuthRouter(mailer: { sendMail: (mail: Mail) => Promise<void> } = { sendMail: realSendMail }) {
   const authRouter = Router()
 
@@ -273,6 +280,53 @@ export function createAuthRouter(mailer: { sendMail: (mail: Mail) => Promise<voi
     ])
 
     res.json({ message: 'Password has been reset.' })
+  })
+
+  authRouter.post('/accept-invite', async (req, res) => {
+    const input = acceptInviteSchema.parse(req.body)
+    const tokenHash = hashToken(input.token)
+    const invite = await db.workspaceInvite.findUnique({ where: { tokenHash } })
+
+    const isValid = invite && !invite.acceptedAt && !invite.revokedAt && invite.expiresAt > new Date()
+    if (!isValid) {
+      // Doesn't distinguish expired vs. already-accepted vs. revoked vs. never-existed.
+      throw new AppError(400, 'INVALID_INVITE_TOKEN', 'This invite link is invalid or has expired.')
+    }
+
+    const existingUser = await db.user.findUnique({ where: { email: invite.email } })
+    if (existingUser) {
+      // See BACKLOG.md "Auth — Accept-Invite-While-Logged-In Flow" — no silent account
+      // linking from an unauthenticated request. The client should tell this person to
+      // log in; linking an existing account to a new workspace from here needs its own
+      // authenticated flow, deferred to B9.
+      throw new AppError(
+        409,
+        'EMAIL_HAS_EXISTING_ACCOUNT',
+        'An account already exists for this email. Log in, then ask the workspace owner to resend the invite.',
+      )
+    }
+
+    const passwordHash = await hashPassword(input.password)
+
+    const user = await db.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: { email: invite.email, passwordHash, firstName: input.firstName, lastName: input.lastName },
+      })
+      await tx.workspaceMember.create({ data: { workspaceId: invite.workspaceId, userId: user.id, role: invite.role } })
+      await tx.workspaceInvite.update({ where: { id: invite.id }, data: { acceptedAt: new Date() } })
+      return user
+    })
+
+    const accessToken = signAccessToken(user.id)
+    const { token: refreshToken, hash: refreshTokenHash } = signRefreshToken()
+    await db.session.create({
+      data: { userId: user.id, refreshTokenHash, userAgent: req.headers['user-agent'], ipAddress: req.ip },
+    })
+
+    setRefreshCookie(res, refreshToken)
+
+    const { passwordHash: _passwordHash, ...safeUser } = user
+    res.status(201).json({ user: safeUser, accessToken })
   })
 
   return authRouter
