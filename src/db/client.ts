@@ -11,20 +11,49 @@ import { Prisma, PrismaClient } from '@prisma/client'
 // Reproduced empirically (see the connection resilience test + BACKLOG-adjacent incident
 // notes): a real accept-invite request issued a few minutes after its invite was created
 // — the ordinary gap while a person copies the invite token out of the mailer stub's
-// console log — hit exactly this P1001 on its very first query. The DB was reachable
-// again within ~10s. This schedule (1s, 2s, 4s, 8s — 15s of waiting across 4 retries) is
-// sized with margin above that observed recovery time, not pinned to it — cold-start
-// duration isn't a guaranteed constant, hence backoff instead of one fixed sleep.
+// console log — hit exactly this P1001 on its very first query. That gap was ~48s, which
+// is routine usage (anyone who pauses to think, gets interrupted, or reads something
+// before their next click), not a rare edge case. An earlier 4-retry/15s-budget version of
+// this schedule recovered against a live 8-minute cold-start gap, but only on its last
+// retry attempt — not enough margin for comfort. This schedule (1s, 2s, 4s, 8s, 16s, 32s —
+// ~63s of waiting across 6 retries) is sized to recover with retries to spare rather than
+// on the last one — cold-start duration isn't a guaranteed constant, hence backoff instead
+// of one fixed sleep.
+//
+// A freshly created PrismaClient's very first query — before any connection has ever been
+// established — hits the same cold-start condition but Prisma throws a different class for
+// it: PrismaClientInitializationError, not PrismaClientKnownRequestError. Reproduced live
+// against a genuinely-idle Neon test-branch: `errorCode` was undefined even though the
+// message was Prisma's standard fixed P1001 text ("Can't reach database server..."), so
+// checking `errorCode === 'P1001'` alone misses it. We deliberately do NOT retry every
+// PrismaClientInitializationError — most other causes (bad credentials, missing engine
+// binary, invalid schema) are permanent misconfiguration, not a transient connectivity gap,
+// and retrying those would just delay a real error by ~60s for nothing. Matching Prisma's
+// own fixed P1001 message text keeps this scoped to the same "never reached the server"
+// condition as the known-request-error case above.
 const RETRYABLE_CODES = new Set(['P1001'])
-const MAX_RETRIES = 4
+const P1001_MESSAGE = "Can't reach database server"
+const MAX_RETRIES = 6
 const BASE_DELAY_MS = 1000
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function isRetryable(err: unknown): err is Prisma.PrismaClientKnownRequestError {
-  return err instanceof Prisma.PrismaClientKnownRequestError && RETRYABLE_CODES.has(err.code)
+function isRetryable(err: unknown): boolean {
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    return RETRYABLE_CODES.has(err.code)
+  }
+  if (err instanceof Prisma.PrismaClientInitializationError) {
+    return err.errorCode === 'P1001' || err.message.includes(P1001_MESSAGE)
+  }
+  return false
+}
+
+function describe(err: unknown): string {
+  if (err instanceof Prisma.PrismaClientKnownRequestError) return err.code
+  if (err instanceof Prisma.PrismaClientInitializationError) return err.errorCode ?? 'P1001 (init)'
+  return 'unknown'
 }
 
 // Exported standalone (not just inlined into the $extends call below) so it can be unit
@@ -40,7 +69,7 @@ export async function withDbReconnectRetry<T>(run: () => Promise<T>): Promise<T>
       }
       const delay = BASE_DELAY_MS * 2 ** attempt
       attempt += 1
-      console.warn(`[db] ${err.code} reaching database — retrying in ${delay}ms (attempt ${attempt}/${MAX_RETRIES})`)
+      console.warn(`[db] ${describe(err)} reaching database — retrying in ${delay}ms (attempt ${attempt}/${MAX_RETRIES})`)
       await wait(delay)
     }
   }

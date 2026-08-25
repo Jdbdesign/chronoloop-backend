@@ -16,6 +16,27 @@ function p2002(): Prisma.PrismaClientKnownRequestError {
   })
 }
 
+function initErrorP1001WithCode(): Prisma.PrismaClientInitializationError {
+  return new Prisma.PrismaClientInitializationError(
+    "Can't reach database server at `host:5432`\n\nPlease make sure your database server is running",
+    '6.19.3',
+    'P1001',
+  )
+}
+
+// Reproduces the live failure mode: same fixed P1001 message, but errorCode left unset —
+// observed against a real Neon test-branch cold start (see src/db/client.ts comment).
+function initErrorP1001WithoutCode(): Prisma.PrismaClientInitializationError {
+  return new Prisma.PrismaClientInitializationError(
+    "Can't reach database server at `host:5432`\n\nPlease make sure your database server is running",
+    '6.19.3',
+  )
+}
+
+function initErrorUnrelated(): Prisma.PrismaClientInitializationError {
+  return new Prisma.PrismaClientInitializationError('The provided database credentials are not valid', '6.19.3', 'P1000')
+}
+
 describe('withDbReconnectRetry', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -42,7 +63,7 @@ describe('withDbReconnectRetry', () => {
     expect(run).toHaveBeenCalledTimes(3)
   })
 
-  it('waits with exponential backoff (1s, 2s, 4s, 8s) between retries, not a fixed delay', async () => {
+  it('waits with exponential backoff (1s, 2s, 4s, 8s, 16s, 32s) between retries, not a fixed delay', async () => {
     const run = vi.fn().mockRejectedValue(p1001())
     const resultPromise = withDbReconnectRetry(run).catch((e: unknown) => e)
 
@@ -64,7 +85,13 @@ describe('withDbReconnectRetry', () => {
     expect(run).toHaveBeenCalledTimes(4) // 4s elapsed — third retry fires
 
     await vi.advanceTimersByTimeAsync(8000)
-    expect(run).toHaveBeenCalledTimes(5) // 8s elapsed — fourth (final) retry fires
+    expect(run).toHaveBeenCalledTimes(5) // 8s elapsed — fourth retry fires
+
+    await vi.advanceTimersByTimeAsync(16000)
+    expect(run).toHaveBeenCalledTimes(6) // 16s elapsed — fifth retry fires
+
+    await vi.advanceTimersByTimeAsync(32000)
+    expect(run).toHaveBeenCalledTimes(7) // 32s elapsed — sixth (final) retry fires
 
     await resultPromise
   })
@@ -74,10 +101,10 @@ describe('withDbReconnectRetry', () => {
     const resultPromise = withDbReconnectRetry(run)
     const assertion = expect(resultPromise).rejects.toMatchObject({ code: 'P1001' })
 
-    await vi.advanceTimersByTimeAsync(1000 + 2000 + 4000 + 8000)
+    await vi.advanceTimersByTimeAsync(1000 + 2000 + 4000 + 8000 + 16000 + 32000)
 
     await assertion
-    expect(run).toHaveBeenCalledTimes(5) // 1 initial attempt + 4 retries, then give up
+    expect(run).toHaveBeenCalledTimes(7) // 1 initial attempt + 6 retries, then give up
   })
 
   it('does not retry a different Prisma error code (e.g. a unique constraint violation)', async () => {
@@ -89,6 +116,29 @@ describe('withDbReconnectRetry', () => {
   it('does not retry a non-Prisma error', async () => {
     const run = vi.fn().mockRejectedValue(new Error('boom'))
     await expect(withDbReconnectRetry(run)).rejects.toThrow('boom')
+    expect(run).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries a PrismaClientInitializationError carrying errorCode P1001 (e.g. a bad connection URL)', async () => {
+    const run = vi.fn().mockRejectedValueOnce(initErrorP1001WithCode()).mockResolvedValue('ok')
+    const resultPromise = withDbReconnectRetry(run)
+    await vi.advanceTimersByTimeAsync(1000)
+    await expect(resultPromise).resolves.toBe('ok')
+    expect(run).toHaveBeenCalledTimes(2)
+  })
+
+  it('retries a PrismaClientInitializationError with the fixed P1001 message but no errorCode (a fresh client'
+    + "'s first query hitting a suspended Neon compute, reproduced live)", async () => {
+    const run = vi.fn().mockRejectedValueOnce(initErrorP1001WithoutCode()).mockResolvedValue('ok')
+    const resultPromise = withDbReconnectRetry(run)
+    await vi.advanceTimersByTimeAsync(1000)
+    await expect(resultPromise).resolves.toBe('ok')
+    expect(run).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry an unrelated PrismaClientInitializationError (e.g. bad credentials)', async () => {
+    const run = vi.fn().mockRejectedValue(initErrorUnrelated())
+    await expect(withDbReconnectRetry(run)).rejects.toMatchObject({ errorCode: 'P1000' })
     expect(run).toHaveBeenCalledTimes(1)
   })
 })
