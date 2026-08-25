@@ -36,8 +36,21 @@ const P1001_MESSAGE = "Can't reach database server"
 const MAX_RETRIES = 6
 const BASE_DELAY_MS = 1000
 
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+// Resolves early (not rejects) if aborted mid-wait — the retry loop itself checks
+// `signal.aborted` right after this returns to decide whether to actually retry.
+function wait(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve()
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer)
+        resolve()
+      },
+      { once: true },
+    )
+  })
 }
 
 function isRetryable(err: unknown): boolean {
@@ -58,24 +71,44 @@ function describe(err: unknown): string {
 
 // Exported standalone (not just inlined into the $extends call below) so it can be unit
 // tested without a real database connection — see test/unit/db/client.test.ts.
-export async function withDbReconnectRetry<T>(run: () => Promise<T>): Promise<T> {
+//
+// `signal` is optional and unused by the global `db` client below (Prisma's `$extends`
+// `$allOperations` hook has no per-call context to thread a signal through). It exists so
+// a caller that bypasses the global wrapper — see `rawPrisma` below and
+// test/helpers/resetDb.ts — can bound how long an in-flight retry sequence is allowed to
+// keep running. Note this cannot cancel a single query attempt already in flight over the
+// wire (Prisma has no per-query cancellation API); what it *does* do is stop the loop from
+// scheduling any further retry once aborted, which is what actually matters here — the
+// corruption risk this closes is an abandoned retry *loop* continuing to fire for up to 48
+// more seconds and eventually writing after a caller has stopped waiting on it, not a
+// single slow query.
+export async function withDbReconnectRetry<T>(run: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   let attempt = 0
   for (;;) {
     try {
       return await run()
     } catch (err) {
-      if (!isRetryable(err) || attempt >= MAX_RETRIES) {
+      if (!isRetryable(err) || attempt >= MAX_RETRIES || signal?.aborted) {
         throw err
       }
       const delay = BASE_DELAY_MS * 2 ** attempt
       attempt += 1
       console.warn(`[db] ${describe(err)} reaching database — retrying in ${delay}ms (attempt ${attempt}/${MAX_RETRIES})`)
-      await wait(delay)
+      await wait(delay, signal)
+      if (signal?.aborted) {
+        throw err
+      }
     }
   }
 }
 
 const basePrisma = new PrismaClient()
+
+// The un-extended client, for callers that need to pass their own AbortSignal into
+// withDbReconnectRetry directly (bypassing $allOperations, which can't carry one) — see
+// test/helpers/resetDb.ts. Not for general route/handler use; prefer `db` below, which
+// gets the same P1001 retry behavior automatically on every call with no extra wiring.
+export const rawPrisma = basePrisma
 
 export const db = basePrisma.$extends({
   query: {
