@@ -5,7 +5,7 @@ import { requireWorkspaceMember } from '../middleware/requireWorkspaceMember.js'
 import { requireRole } from '../middleware/requireRole.js'
 import { db } from '../db/client.js'
 import { AppError } from '../lib/errors.js'
-import { TASK_SELECT, withOverdue } from '../lib/taskAccess.js'
+import { TASK_SELECT, withOverdue, parseTaskId, assertWorkspaceTask } from '../lib/taskAccess.js'
 
 export const tasksByWorkspaceRouter = Router({ mergeParams: true })
 
@@ -88,3 +88,83 @@ tasksByWorkspaceRouter.post(
 // Tasks 3-5 append PATCH /:id, PATCH /:id/status, DELETE /:id, POST /:id/restore,
 // POST /:id/subtasks, and POST /:id/comments to this router.
 export const tasksRouter = Router()
+
+const patchTaskSchema = z.object({
+  title: z.string().min(1).optional(),
+  description: z.string().nullable().optional(),
+  projectId: z.string().nullable().optional(),
+  assigneeId: z.string().nullable().optional(),
+  priority: z.enum(['HIGH', 'MEDIUM', 'LOW']).optional(),
+  due: z.coerce.date().nullable().optional(),
+  tags: z.array(z.string()).optional(),
+})
+
+tasksRouter.patch(
+  '/:id',
+  requireAuth,
+  requireWorkspaceMember,
+  requireRole('CREATE_TASKS'),
+  async (req, res) => {
+    const taskId = parseTaskId(req.params.id)
+    const workspaceId = req.workspaceMember!.workspaceId
+    await assertWorkspaceTask(workspaceId, taskId)
+    const input = patchTaskSchema.parse(req.body)
+    if (input.assigneeId) {
+      await assertValidAssignee(workspaceId, input.assigneeId)
+    }
+
+    const updated = await db.task.update({ where: { id: taskId }, data: input, select: TASK_SELECT })
+    res.json(withOverdue(updated))
+  },
+)
+
+const patchStatusSchema = z.object({ status: z.enum(['TODO', 'IN_PROGRESS', 'DONE']) })
+
+tasksRouter.patch(
+  '/:id/status',
+  requireAuth,
+  requireWorkspaceMember,
+  requireRole('CREATE_TASKS'),
+  async (req, res) => {
+    const taskId = parseTaskId(req.params.id)
+    await assertWorkspaceTask(req.workspaceMember!.workspaceId, taskId)
+    const { status } = patchStatusSchema.parse(req.body)
+    // completedAt is deliberately left untouched — see plan Decision 1.
+    const updated = await db.task.update({ where: { id: taskId }, data: { status }, select: TASK_SELECT })
+    res.json(withOverdue(updated))
+  },
+)
+
+tasksRouter.delete(
+  '/:id',
+  requireAuth,
+  requireWorkspaceMember,
+  requireRole('DELETE_TASKS'),
+  async (req, res) => {
+    const taskId = parseTaskId(req.params.id)
+    await assertWorkspaceTask(req.workspaceMember!.workspaceId, taskId)
+    const updated = await db.task.update({
+      where: { id: taskId },
+      data: { deletedAt: new Date() },
+      select: TASK_SELECT,
+    })
+    res.json(withOverdue(updated))
+  },
+)
+
+tasksRouter.post(
+  '/:id/restore',
+  requireAuth,
+  requireWorkspaceMember,
+  requireRole('DELETE_TASKS'),
+  async (req, res) => {
+    const taskId = parseTaskId(req.params.id)
+    await assertWorkspaceTask(req.workspaceMember!.workspaceId, taskId, { includeDeleted: true })
+    const updated = await db.task.update({
+      where: { id: taskId },
+      data: { deletedAt: null },
+      select: TASK_SELECT,
+    })
+    res.json(withOverdue(updated))
+  },
+)
