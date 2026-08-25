@@ -7,6 +7,7 @@ import { healthRouter } from './routes/health.js'
 import { createAuthRouter } from './routes/auth.js'
 import { workspacesRouter } from './routes/workspaces.js'
 import { createInvitesRouter } from './routes/invites.js'
+import { tasksByWorkspaceRouter, tasksRouter } from './routes/tasks.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { env } from './config/env.js'
 import { sendMail as realSendMail, type Mail } from './lib/mailer.js'
@@ -38,7 +39,9 @@ export function buildApp(options: BuildAppOptions = {}): Express {
   app.use('/health', healthRouter)
   app.use('/auth', createAuthRouter(mailer))
   app.use('/workspaces/:id/invites', createInvitesRouter(mailer))
+  app.use('/workspaces/:id/tasks', tasksByWorkspaceRouter)
   app.use('/workspaces', workspacesRouter)
+  app.use('/tasks', tasksRouter)
 
   app.use(errorHandler)
 
