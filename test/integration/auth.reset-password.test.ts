@@ -1,22 +1,13 @@
-import 'express-async-errors'
 import { describe, it, expect, beforeEach } from 'vitest'
 import request from 'supertest'
-import express from 'express'
-import cookieParser from 'cookie-parser'
-import { createAuthRouter } from '../../src/routes/auth.js'
-import { errorHandler } from '../../src/middleware/errorHandler.js'
+import { testApp } from '../helpers/testApp.js'
 import { resetDb } from '../helpers/resetDb.js'
 import { db } from '../../src/db/client.js'
 import { hashPassword } from '../../src/lib/password.js'
 import { TestMailer } from '../../src/lib/mailer.js'
 
 function appWithTestMailer() {
-  const app = express()
-  app.use(express.json())
-  app.use(cookieParser())
-  app.use('/auth', createAuthRouter(TestMailer))
-  app.use(errorHandler)
-  return app
+  return testApp({ mailer: TestMailer })
 }
 
 async function requestReset(email: string): Promise<string> {

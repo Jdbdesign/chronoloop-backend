@@ -1,18 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import request from 'supertest'
-// This file builds its own bare `express()` app (instead of going through
-// `buildApp()`) so it can inject TestMailer — buildApp()'s import of
-// 'express-async-errors' never runs for it, and Vitest's default file
-// isolation means that patch doesn't leak in from another test file either.
-// Without this import, an AppError thrown inside an async handler becomes an
-// unhandled promise rejection instead of reaching `errorHandler`, and the
-// request hangs until the test times out.
-import 'express-async-errors'
-import express from 'express'
-import cookieParser from 'cookie-parser'
-import { createAuthRouter } from '../../src/routes/auth.js'
-import { createInvitesRouter } from '../../src/routes/invites.js'
-import { errorHandler } from '../../src/middleware/errorHandler.js'
+import { testApp } from '../helpers/testApp.js'
 import { resetDb } from '../helpers/resetDb.js'
 import { db } from '../../src/db/client.js'
 import { hashPassword } from '../../src/lib/password.js'
@@ -20,13 +8,7 @@ import { signAccessToken } from '../../src/lib/jwt.js'
 import { TestMailer } from '../../src/lib/mailer.js'
 
 function appWithTestMailer() {
-  const app = express()
-  app.use(express.json())
-  app.use(cookieParser())
-  app.use('/auth', createAuthRouter(TestMailer))
-  app.use('/workspaces/:id/invites', createInvitesRouter(TestMailer))
-  app.use(errorHandler)
-  return app
+  return testApp({ mailer: TestMailer })
 }
 
 async function inviteMember(email: string) {
