@@ -32,7 +32,7 @@ model User {
   loginAttempts   LoginAttempt[]
   resetTokens     PasswordResetToken[]
   invitesSent     WorkspaceInvite[]     @relation("InvitedBy")
-  // comments Comment[] — restored in B2 (Tasks) when Comment is created
+  comments        Comment[]
 }
 
 model Workspace {
@@ -50,9 +50,9 @@ model Workspace {
 
   members   WorkspaceMember[]
   invites   WorkspaceInvite[]
+  tasks           Task[]
   // projects Project[] — restored in B3
   // sprints Sprint[] — restored in B4
-  // tasks Task[] — restored in B2
   // calendarEvents CalendarEvent[] — restored in B5
   // integrations WorkspaceIntegration[], webhooks Webhook[], syncRules SyncRule[], apiKeys ApiKey[] — restored in B8
   // activityLog ActivityLogEntry[] — restored in B6
@@ -84,7 +84,7 @@ model WorkspaceMember {
   lastActiveAt DateTime?
   joinedAt     DateTime      @default(now())
 
-  // assignedTasks Task[] @relation("Assignee") — restored in B2
+  assignedTasks   Task[]  @relation("Assignee")
   // projectMemberships ProjectMember[] — restored in B3
   // notificationPrefs NotificationPrefs? — restored in B9
 
@@ -137,4 +137,80 @@ model PasswordResetToken {
   tokenHash  String    @unique
   expiresAt  DateTime
   usedAt     DateTime?
+}
+
+// ── Projects (Priority enum only — Project model itself lands in B3) ────
+enum Priority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+// ── Tasks ────────────────────────────────────────────────────────
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+model Task {
+  id           Int        @id @default(autoincrement()) // matches existing frontend Task.id — design doc §7 Decision 4
+  workspaceId  String
+  workspace    Workspace  @relation(fields: [workspaceId], references: [id])
+  title        String
+  description  String?
+  projectId    String?    // scalar only — no @relation until B3 creates Project (see plan Decision 5)
+  sprintId     String?    // dormant — no @relation, not read/written by any B2 route (see plan Decision 1)
+  assigneeId   String?
+  assignee     WorkspaceMember? @relation("Assignee", fields: [assigneeId], references: [id])
+  priority     Priority   @default(MEDIUM)
+  status       TaskStatus @default(TODO)
+  points       Int?       // dormant (see plan Decision 1)
+  due          DateTime?
+  completedAt  DateTime?  // dormant (see plan Decision 1)
+  tags         String[]   @default([])
+  createdAt    DateTime   @default(now())
+  deletedAt    DateTime?  // soft delete, backs the undo pattern
+
+  subtasks     Subtask[]
+  comments     Comment[]
+  attachments  Attachment[]
+
+  @@index([workspaceId, deletedAt])
+}
+
+model Subtask {
+  id     String  @id @default(cuid())
+  taskId Int
+  task   Task    @relation(fields: [taskId], references: [id])
+  text   String
+  done   Boolean @default(false)
+  order  Int     @default(0) // future-proofing only — no reorder endpoint in B2 (plan Decision 2)
+
+  @@index([taskId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  taskId    Int
+  task      Task     @relation(fields: [taskId], references: [id])
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+}
+
+model Attachment { // metadata only — no file bytes/storage; no create endpoint in B2 either (plan Decision 3)
+  id           String   @id @default(cuid())
+  taskId       Int
+  task         Task     @relation(fields: [taskId], references: [id])
+  name         String
+  sizeBytes    Int
+  mimeType     String
+  uploadedById String
+  createdAt    DateTime @default(now())
+
+  @@index([taskId])
 }
