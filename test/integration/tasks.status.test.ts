@@ -48,4 +48,19 @@ describe('PATCH /tasks/:id/status', () => {
 
     expect(res.status).toBe(400)
   })
+
+  it('returns 404 when attempting to change status of an already soft-deleted task', async () => {
+    const { workspace, token } = await createWorkspaceWithOwner()
+    const task = await db.task.create({
+      data: { workspaceId: workspace.id, title: 'Deleted task', deletedAt: new Date() },
+    })
+
+    const res = await request(testApp())
+      .patch(`/tasks/${task.id}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Workspace-Id', workspace.id)
+      .send({ status: 'DONE' })
+
+    expect(res.status).toBe(404)
+  })
 })

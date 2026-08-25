@@ -45,4 +45,18 @@ describe('DELETE /tasks/:id and POST /tasks/:id/restore', () => {
 
     expect(res.status).toBe(403)
   })
+
+  it('returns 404 when attempting to delete an already soft-deleted task', async () => {
+    const { workspace, token } = await createWorkspaceWithOwner()
+    const task = await db.task.create({
+      data: { workspaceId: workspace.id, title: 'Deleted task', deletedAt: new Date() },
+    })
+
+    const res = await request(testApp())
+      .delete(`/tasks/${task.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Workspace-Id', workspace.id)
+
+    expect(res.status).toBe(404)
+  })
 })
