@@ -4,6 +4,8 @@ import cors from 'cors'
 import helmet from 'helmet'
 import cookieParser from 'cookie-parser'
 import { healthRouter } from './routes/health.js'
+import { authRouter } from './routes/auth.js'
+import { workspacesRouter } from './routes/workspaces.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { env } from './config/env.js'
 
@@ -21,6 +23,8 @@ export function buildApp(): Express {
   app.use(cookieParser())
 
   app.use('/health', healthRouter)
+  app.use('/auth', authRouter)
+  app.use('/workspaces', workspacesRouter)
 
   app.use(errorHandler)
 
