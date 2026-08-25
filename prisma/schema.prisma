@@ -175,6 +175,8 @@ model Task {
   subtasks     Subtask[]
   comments     Comment[]
   attachments  Attachment[]
+
+  @@index([workspaceId, deletedAt])
 }
 
 model Subtask {
@@ -184,6 +186,8 @@ model Subtask {
   text   String
   done   Boolean @default(false)
   order  Int     @default(0) // future-proofing only — no reorder endpoint in B2 (plan Decision 2)
+
+  @@index([taskId])
 }
 
 model Comment {
@@ -194,6 +198,8 @@ model Comment {
   author    User     @relation(fields: [authorId], references: [id])
   text      String
   createdAt DateTime @default(now())
+
+  @@index([taskId])
 }
 
 model Attachment { // metadata only — no file bytes/storage; no create endpoint in B2 either (plan Decision 3)
@@ -205,4 +211,6 @@ model Attachment { // metadata only — no file bytes/storage; no create endpoin
   mimeType     String
   uploadedById String
   createdAt    DateTime @default(now())
+
+  @@index([taskId])
 }

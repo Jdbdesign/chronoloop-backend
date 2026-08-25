@@ -55,6 +55,18 @@ describe('PATCH /tasks/:id', () => {
     expect(res.status).toBe(404)
   })
 
+  it('returns 400 (not 500) for an out-of-range task id', async () => {
+    const { workspace, token } = await createWorkspaceWithOwner()
+
+    const res = await request(testApp())
+      .patch('/tasks/99999999999')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Workspace-Id', workspace.id)
+      .send({ title: 'Does not matter' })
+
+    expect(res.status).toBe(400)
+  })
+
   it('returns 404 when attempting to update an already soft-deleted task', async () => {
     const { workspace, token } = await createWorkspaceWithOwner()
     const task = await db.task.create({

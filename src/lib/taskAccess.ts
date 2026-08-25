@@ -1,9 +1,10 @@
+import { Prisma } from '@prisma/client'
 import { db } from '../db/client.js'
 import { AppError } from './errors.js'
 
 export function parseTaskId(raw: string): number {
   const id = Number(raw)
-  if (!Number.isInteger(id)) {
+  if (!Number.isInteger(id) || id < 1 || id > 2_147_483_647) {
     throw new AppError(400, 'INVALID_TASK_ID', 'Task id must be an integer.')
   }
   return id
@@ -38,7 +39,7 @@ export const TASK_SELECT = {
   deletedAt: true,
   subtasks: {
     select: { id: true, text: true, done: true, order: true },
-    orderBy: { order: 'asc' as const },
+    orderBy: [{ order: 'asc' }, { id: 'asc' }] as Prisma.SubtaskOrderByWithRelationInput[],
   },
   comments: {
     select: {
@@ -51,6 +52,7 @@ export const TASK_SELECT = {
   },
   attachments: {
     select: { id: true, name: true, sizeBytes: true, mimeType: true, uploadedById: true, createdAt: true },
+    orderBy: { createdAt: 'asc' as const },
   },
 } as const
 

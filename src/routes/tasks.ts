@@ -69,7 +69,7 @@ tasksByWorkspaceRouter.post(
 
     const created = await db.task.create({
       data: {
-        workspaceId: req.params.id,
+        workspaceId: req.workspaceMember!.workspaceId,
         title: input.title,
         description: input.description ?? null,
         projectId: input.projectId ?? null,
