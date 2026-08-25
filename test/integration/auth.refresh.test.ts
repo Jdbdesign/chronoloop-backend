@@ -36,6 +36,16 @@ describe('POST /auth/refresh', () => {
     expect(newCookie).not.toBe(cookie)
   })
 
+  it('delivers the rotated refresh token only via an httpOnly Set-Cookie, never in the JSON body', async () => {
+    const cookie = await loginAndGetCookie()
+
+    const res = await request(testApp()).post('/auth/refresh').set('Cookie', cookie)
+
+    expect(res.headers['set-cookie'][0]).toMatch(/HttpOnly/)
+    expect(res.body.refreshToken).toBeUndefined()
+    expect(Object.keys(res.body)).toEqual(['accessToken'])
+  })
+
   it('revokes the old session row on rotation (not just issuing a new one)', async () => {
     const cookie = await loginAndGetCookie()
     const rawOldToken = cookie.split('refreshToken=')[1].split(';')[0]

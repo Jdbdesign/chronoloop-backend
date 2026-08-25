@@ -26,7 +26,9 @@ describe('POST /auth/login', () => {
     expect(res.body.accessToken).toEqual(expect.any(String))
     expect(res.body.user.email).toBe('jacob@example.com')
     expect(res.body.user.passwordHash).toBeUndefined()
+    expect(res.body.refreshToken).toBeUndefined()
     expect(res.headers['set-cookie'][0]).toMatch(/^refreshToken=/)
+    expect(res.headers['set-cookie'][0]).toMatch(/HttpOnly/)
 
     const attempts = await db.loginAttempt.findMany({ where: { emailTried: 'jacob@example.com' } })
     expect(attempts).toHaveLength(1)
