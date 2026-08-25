@@ -141,4 +141,52 @@ describe('withDbReconnectRetry', () => {
     await expect(withDbReconnectRetry(run)).rejects.toMatchObject({ errorCode: 'P1000' })
     expect(run).toHaveBeenCalledTimes(1)
   })
+
+  // Closes the gap found 2026-08-25: a caller that stops waiting on this function (e.g.
+  // vitest killing a beforeEach hook on its own timeout) previously had no way to make the
+  // retry loop actually stop — it kept firing every scheduled retry regardless, for up to
+  // 48 more seconds after the caller gave up, and could land a write after later work had
+  // already started. Reproduced with fake timers before this fix existed: at a 15s cutoff
+  // the loop had already fired 5 times and went on to fire 7 times total, unsupervised.
+  describe('signal-based cancellation', () => {
+    it('stops scheduling further retries once the signal is aborted mid-wait, and rejects', async () => {
+      const run = vi.fn().mockRejectedValue(p1001())
+      const controller = new AbortController()
+      const resultPromise = withDbReconnectRetry(run, controller.signal)
+      const assertion = expect(resultPromise).rejects.toMatchObject({ code: 'P1001' })
+
+      await vi.advanceTimersByTimeAsync(1000) // 1st retry fires (call #2)
+      await vi.advanceTimersByTimeAsync(2000) // 2nd retry fires (call #3)
+      expect(run).toHaveBeenCalledTimes(3)
+
+      // Aborts while the loop is mid-wait for the 3rd retry (4s delay).
+      controller.abort()
+      // Advance well past the remaining backoff (4s+8s+16s+32s=60s) that would otherwise
+      // still be pending — nothing more should happen.
+      await vi.advanceTimersByTimeAsync(60000)
+
+      await assertion
+      expect(run).toHaveBeenCalledTimes(3) // no calls after the abort
+    })
+
+    it('rejects on the first failure without retrying if the signal is already aborted', async () => {
+      const run = vi.fn().mockRejectedValue(p1001())
+      const controller = new AbortController()
+      controller.abort()
+
+      await expect(withDbReconnectRetry(run, controller.signal)).rejects.toMatchObject({ code: 'P1001' })
+      expect(run).toHaveBeenCalledTimes(1)
+    })
+
+    it('is unaffected by an unrelated, un-aborted signal — retries exactly as without one', async () => {
+      const run = vi.fn().mockRejectedValueOnce(p1001()).mockResolvedValue('ok')
+      const controller = new AbortController()
+
+      const resultPromise = withDbReconnectRetry(run, controller.signal)
+      await vi.advanceTimersByTimeAsync(1000)
+
+      await expect(resultPromise).resolves.toBe('ok')
+      expect(run).toHaveBeenCalledTimes(2)
+    })
+  })
 })
