@@ -1,0 +1,427 @@
+{
+  "info": {
+    "_postman_id": "b1a4f5b0-3c2e-4c1a-9e2c-b1auth00flow0",
+    "name": "Chronoloop B1 — Auth Flow (Local)",
+    "description": "End-to-end walkthrough of the B1 auth flow against the local chronoloop-backend dev server (http://localhost:4000).\n\n**Run order matters.** Requests are numbered 01–11 and must be sent top to bottom (or via Collection Runner) because each one depends on state (tokens, IDs) captured by the ones before it.\n\n**Two manual steps required** (the mailer is stubbed — it logs instead of sending real email):\n- Before **04. Accept Invite**, copy the invite token from the `pnpm dev` console into the `inviteToken` collection variable.\n- Before **07. Reset Password**, copy the reset token from the `pnpm dev` console into the `resetToken` collection variable.\n\nExact instructions are in each of those requests' description tabs.\n\n**Why tokens are captured in variables instead of relying on Postman's cookie jar:** the backend's refresh-token cookie is set with `Secure; SameSite=None` (correct behavior — matches production, where frontend and backend are different HTTPS origins). Postman's cookie jar does not send `Secure` cookies over plain `http://localhost`, so relying on it would silently break every request after login. Instead, each request that receives a `Set-Cookie: refreshToken=...` header captures the raw value into the `refreshToken` collection variable via its Tests script, and requests that need to send it back do so with an explicit `Cookie: refreshToken={{refreshToken}}` header — this works regardless of the Secure flag since it's just a normal header, not the cookie jar.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000", "type": "string" },
+    { "key": "user1Email", "value": "", "type": "string" },
+    { "key": "user1Password", "value": "InitialPass123!", "type": "string" },
+    { "key": "user1NewPassword", "value": "NewPassword456!", "type": "string" },
+    { "key": "user1FirstName", "value": "Ada", "type": "string" },
+    { "key": "user1LastName", "value": "Owner", "type": "string" },
+    { "key": "user2Email", "value": "", "type": "string" },
+    { "key": "user2Password", "value": "MemberPass789!", "type": "string" },
+    { "key": "user2FirstName", "value": "Grace", "type": "string" },
+    { "key": "user2LastName", "value": "Member", "type": "string" },
+    { "key": "workspaceName", "value": "", "type": "string" },
+    { "key": "workspaceId", "value": "", "type": "string" },
+    { "key": "accessToken", "value": "", "type": "string" },
+    { "key": "accessToken2", "value": "", "type": "string" },
+    { "key": "refreshToken", "value": "", "type": "string" },
+    { "key": "inviteToken", "value": "", "type": "string" },
+    { "key": "resetToken", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "01. Signup Workspace (User 1 — Owner)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Generate fresh, unique identifiers each time this request is sent, so the",
+              "// whole collection can be re-run repeatedly without hitting 409 EMAIL_ALREADY_REGISTERED.",
+              "const runId = Date.now();",
+              "pm.collectionVariables.set('user1Email', `owner+${runId}@example.com`);",
+              "pm.collectionVariables.set('user2Email', `member+${runId}@example.com`);",
+              "pm.collectionVariables.set('workspaceName', `Acme Co ${runId}`);"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+              "",
+              "const body = pm.response.json();",
+              "pm.test('Response has accessToken, user, and workspace', () => {",
+              "  pm.expect(body.accessToken).to.be.a('string');",
+              "  pm.expect(body.user.email).to.eql(pm.collectionVariables.get('user1Email'));",
+              "  pm.expect(body.workspace.id).to.be.a('string');",
+              "});",
+              "",
+              "pm.collectionVariables.set('accessToken', body.accessToken);",
+              "pm.collectionVariables.set('workspaceId', body.workspace.id);",
+              "",
+              "const setCookie = pm.response.headers.all()",
+              "  .filter((h) => h.key === 'Set-Cookie')",
+              "  .map((h) => h.value)",
+              "  .join('; ');",
+              "const match = setCookie.match(/refreshToken=([^;]+)/);",
+              "pm.test('refreshToken cookie was set', () => pm.expect(match).to.not.be.null);",
+              "if (match) pm.collectionVariables.set('refreshToken', match[1]);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{user1Email}}\",\n  \"password\": \"{{user1Password}}\",\n  \"firstName\": \"{{user1FirstName}}\",\n  \"lastName\": \"{{user1LastName}}\",\n  \"workspaceName\": \"{{workspaceName}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/auth/signup-workspace",
+        "description": "Creates User 1 (as workspace OWNER) and a new Workspace in one transaction.\n\nCaptures `accessToken`, `workspaceId`, and the raw `refreshToken` (from Set-Cookie) into collection variables for later steps.\n\nThe pre-request script generates fresh, timestamp-suffixed `user1Email` / `user2Email` / `workspaceName` values every time this request is sent, so you can click Send on this request again (or re-run the whole collection) without a 409 EMAIL_ALREADY_REGISTERED."
+      }
+    },
+    {
+      "name": "02. Get Current User (User 1)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test('Profile matches the signed-up user', () => {",
+              "  pm.expect(body.email).to.eql(pm.collectionVariables.get('user1Email'));",
+              "  pm.expect(body.firstName).to.eql(pm.collectionVariables.get('user1FirstName'));",
+              "});",
+              "pm.test('passwordHash is never returned', () => {",
+              "  pm.expect(body).to.not.have.property('passwordHash');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+        "url": "{{baseUrl}}/auth/me",
+        "description": "Confirms the access token from step 01 works and returns User 1's own profile."
+      }
+    },
+    {
+      "name": "03. Invite User 2 to Workspace (as Owner)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+              "const body = pm.response.json();",
+              "pm.test('Invite created for the right email/role', () => {",
+              "  pm.expect(body.email).to.eql(pm.collectionVariables.get('user2Email'));",
+              "  pm.expect(body.role).to.eql('MEMBER');",
+              "});",
+              "pm.test('tokenHash is never returned', () => {",
+              "  pm.expect(body).to.not.have.property('tokenHash');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "X-Workspace-Id", "value": "{{workspaceId}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{user2Email}}\",\n  \"role\": \"MEMBER\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/workspaces/{{workspaceId}}/invites",
+        "description": "Invites User 2 into the workspace as a MEMBER, sent by User 1 (OWNER).\n\n**Manual step before the next request:** the invite token is never returned in this response (only its hash is stored server-side) — the mailer is stubbed and just logs it. Look in the terminal running `pnpm dev` for a block like:\n\n```\n[mailer stub] to=member+169...@example.com subject=\"You've been invited to join a Chronoloop workspace\"\nAccept your invite: http://localhost:5173/accept-invite?token=THIS_IS_THE_TOKEN\n```\n\nCopy the value after `token=` (a 64-character hex string) and paste it into this collection's `inviteToken` variable (Collection → Variables tab, or the environment quick-look eye icon → Current Value) before sending **04. Accept Invite**."
+      }
+    },
+    {
+      "name": "04. Accept Invite (User 2)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const token = pm.collectionVariables.get('inviteToken');",
+              "if (!token) {",
+              "  throw new Error('inviteToken collection variable is empty — copy it from the pnpm dev console output for the previous request (see that request\\'s description) before sending this one.');",
+              "}"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+              "const body = pm.response.json();",
+              "pm.test('User 2 created and logged in', () => {",
+              "  pm.expect(body.accessToken).to.be.a('string');",
+              "  pm.expect(body.user.email).to.eql(pm.collectionVariables.get('user2Email'));",
+              "});",
+              "pm.collectionVariables.set('accessToken2', body.accessToken);",
+              "",
+              "const setCookie = pm.response.headers.all()",
+              "  .filter((h) => h.key === 'Set-Cookie')",
+              "  .map((h) => h.value)",
+              "  .join('; ');",
+              "const match = setCookie.match(/refreshToken=([^;]+)/);",
+              "if (match) pm.collectionVariables.set('refreshToken', match[1]);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"token\": \"{{inviteToken}}\",\n  \"password\": \"{{user2Password}}\",\n  \"firstName\": \"{{user2FirstName}}\",\n  \"lastName\": \"{{user2LastName}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/auth/accept-invite",
+        "description": "Accepts the invite using the token you pasted into `inviteToken` (see step 03's description). Creates User 2, adds them as a MEMBER of the workspace, and logs them in (returns an accessToken, sets a refreshToken cookie).\n\nThe pre-request script will fail loudly with a clear error if `inviteToken` is still blank."
+      }
+    },
+    {
+      "name": "05. Update Workspace as Member (expect 403)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 403 (MEMBER cannot manage workspace settings)', () => {",
+              "  pm.response.to.have.status(403);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('Error code is FORBIDDEN', () => {",
+              "  pm.expect(body.error.code).to.eql('FORBIDDEN');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{accessToken2}}" },
+          { "key": "X-Workspace-Id", "value": "{{workspaceId}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Renamed By Member (should be rejected)\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/workspaces/{{workspaceId}}",
+        "description": "User 2 (MEMBER role) attempts to rename the workspace. `requireRole('MANAGE_WORKSPACE_SETTINGS')` only permits OWNER/ADMIN, so this must return 403 FORBIDDEN — confirms role-based authorization is actually enforced, not just membership."
+      }
+    },
+    {
+      "name": "06. Forgot Password (User 1)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test('Generic message returned (no enumeration)', () => {",
+              "  pm.expect(body.message).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{user1Email}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/auth/forgot-password",
+        "description": "Requests a password reset for User 1. Always returns the same generic 200 message whether or not the email exists (enumeration-hardened) — that's expected, not a bug.\n\n**Manual step before the next request:** look in the `pnpm dev` console for a block like:\n\n```\n[mailer stub] to=owner+169...@example.com subject=\"Reset your Chronoloop password\"\nReset your password: http://localhost:5173/reset-password?token=THIS_IS_THE_TOKEN\n```\n\nCopy the value after `token=` and paste it into this collection's `resetToken` variable before sending **07. Reset Password**."
+      }
+    },
+    {
+      "name": "07. Reset Password (User 1)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const token = pm.collectionVariables.get('resetToken');",
+              "if (!token) {",
+              "  throw new Error('resetToken collection variable is empty — copy it from the pnpm dev console output for the previous request (see that request\\'s description) before sending this one.');",
+              "}"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"token\": \"{{resetToken}}\",\n  \"newPassword\": \"{{user1NewPassword}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/auth/reset-password",
+        "description": "Resets User 1's password using the token pasted into `resetToken` (see step 06's description). On success the server also revokes all of User 1's existing sessions server-side — so the refreshToken captured back in step 01 is now dead, which the next two steps rely on being replaced by a fresh login."
+      }
+    },
+    {
+      "name": "08. Login With New Password (User 1)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200 (new password accepted)', () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.collectionVariables.set('accessToken', body.accessToken);",
+              "",
+              "const setCookie = pm.response.headers.all()",
+              "  .filter((h) => h.key === 'Set-Cookie')",
+              "  .map((h) => h.value)",
+              "  .join('; ');",
+              "const match = setCookie.match(/refreshToken=([^;]+)/);",
+              "pm.test('refreshToken cookie was set', () => pm.expect(match).to.not.be.null);",
+              "if (match) pm.collectionVariables.set('refreshToken', match[1]);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{user1Email}}\",\n  \"password\": \"{{user1NewPassword}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/auth/login",
+        "description": "Confirms the password change from step 07 actually took effect by logging in with the new password. Captures a fresh `accessToken` and `refreshToken` for the refresh/logout tests below.\n\n(If you want to also confirm the OLD password now fails, duplicate this request and swap `{{user1NewPassword}}` for `{{user1Password}}` — expect 401 INVALID_CREDENTIALS. Not included as a numbered step since the brief didn't ask for it.)"
+      }
+    },
+    {
+      "name": "09. Refresh Token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test('A new accessToken is issued', () => {",
+              "  pm.expect(body.accessToken).to.be.a('string');",
+              "});",
+              "pm.collectionVariables.set('accessToken', body.accessToken);",
+              "",
+              "const setCookie = pm.response.headers.all()",
+              "  .filter((h) => h.key === 'Set-Cookie')",
+              "  .map((h) => h.value)",
+              "  .join('; ');",
+              "const match = setCookie.match(/refreshToken=([^;]+)/);",
+              "pm.test('A rotated (different) refreshToken cookie is set', () => {",
+              "  pm.expect(match).to.not.be.null;",
+              "  pm.expect(match[1]).to.not.eql(pm.collectionVariables.get('refreshToken'));",
+              "});",
+              "if (match) pm.collectionVariables.set('refreshToken', match[1]);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Cookie", "value": "refreshToken={{refreshToken}}" }
+        ],
+        "url": "{{baseUrl}}/auth/refresh",
+        "description": "Sends the refresh token captured in step 08 as an explicit `Cookie` header (not via Postman's automatic cookie jar — see the collection description for why). Expects a new access token pair: the old refresh token is revoked server-side and a new one issued (rotate-on-use), which this request's Tests script captures and confirms is different from the one sent."
+      }
+    },
+    {
+      "name": "10a. Logout",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 204', () => pm.response.to.have.status(204));",
+              "// Deliberately NOT clearing the refreshToken collection variable here —",
+              "// the next request needs to replay this now-revoked value to confirm it's rejected."
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Cookie", "value": "refreshToken={{refreshToken}}" }
+        ],
+        "url": "{{baseUrl}}/auth/logout",
+        "description": "Logs out using the (rotated) refresh token from step 09. Server revokes the session and clears the cookie. Expect an empty 204 response."
+      }
+    },
+    {
+      "name": "10b. Refresh After Logout (expect 401)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 401 (revoked token rejected)', () => {",
+              "  pm.response.to.have.status(401);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('Error code is INVALID_REFRESH_TOKEN', () => {",
+              "  pm.expect(body.error.code).to.eql('INVALID_REFRESH_TOKEN');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Cookie", "value": "refreshToken={{refreshToken}}" }
+        ],
+        "url": "{{baseUrl}}/auth/refresh",
+        "description": "Replays the SAME refresh token that logout just revoked in 10a (the collection variable was deliberately left untouched). This must be rejected with 401 INVALID_REFRESH_TOKEN — confirms logout actually invalidates the session server-side rather than only clearing the client-side cookie."
+      }
+    }
+  ]
+}

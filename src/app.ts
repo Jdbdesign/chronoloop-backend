@@ -9,6 +9,7 @@ import { workspacesRouter } from './routes/workspaces.js'
 import { createInvitesRouter } from './routes/invites.js'
 import { tasksByWorkspaceRouter, tasksRouter } from './routes/tasks.js'
 import { subtasksRouter } from './routes/subtasks.js'
+import { projectsByWorkspaceRouter, projectsRouter } from './routes/projects.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { env } from './config/env.js'
 import { sendMail as realSendMail, type Mail } from './lib/mailer.js'
@@ -41,9 +42,11 @@ export function buildApp(options: BuildAppOptions = {}): Express {
   app.use('/auth', createAuthRouter(mailer))
   app.use('/workspaces/:id/invites', createInvitesRouter(mailer))
   app.use('/workspaces/:id/tasks', tasksByWorkspaceRouter)
+  app.use('/workspaces/:id/projects', projectsByWorkspaceRouter)
   app.use('/workspaces', workspacesRouter)
   app.use('/tasks', tasksRouter)
   app.use('/subtasks', subtasksRouter)
+  app.use('/projects', projectsRouter)
 
   app.use(errorHandler)
 

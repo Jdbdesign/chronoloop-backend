@@ -51,7 +51,7 @@ model Workspace {
   members   WorkspaceMember[]
   invites   WorkspaceInvite[]
   tasks           Task[]
-  // projects Project[] — restored in B3
+  projects  Project[]
   // sprints Sprint[] — restored in B4
   // calendarEvents CalendarEvent[] — restored in B5
   // integrations WorkspaceIntegration[], webhooks Webhook[], syncRules SyncRule[], apiKeys ApiKey[] — restored in B8
@@ -85,7 +85,7 @@ model WorkspaceMember {
   joinedAt     DateTime      @default(now())
 
   assignedTasks   Task[]  @relation("Assignee")
-  // projectMemberships ProjectMember[] — restored in B3
+  projectMemberships ProjectMember[]
   // notificationPrefs NotificationPrefs? — restored in B9
 
   @@unique([workspaceId, userId])
@@ -139,11 +139,59 @@ model PasswordResetToken {
   usedAt     DateTime?
 }
 
-// ── Projects (Priority enum only — Project model itself lands in B3) ────
+// ── Projects ────────────────────────────────────────────────────
 enum Priority {
   HIGH
   MEDIUM
   LOW
+}
+
+enum ProjectStatus {
+  ACTIVE
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  ON_HOLD
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id])
+  name        String
+  client      String?
+  category    String?
+  status      ProjectStatus @default(ACTIVE)
+  priority    Priority      @default(MEDIUM)
+  color       String
+  dueDate     DateTime?
+  description String?
+  createdAt   DateTime      @default(now())
+
+  members    ProjectMember[]
+  milestones Milestone[]
+  tasks      Task[]
+  // sprints Sprint[] — restored in B4
+}
+
+model ProjectMember {
+  id        String          @id @default(cuid())
+  projectId String
+  project   Project         @relation(fields: [projectId], references: [id])
+  memberId  String
+  member    WorkspaceMember @relation(fields: [memberId], references: [id])
+
+  @@unique([projectId, memberId])
+}
+
+model Milestone {
+  id        String    @id @default(cuid())
+  projectId String
+  project   Project   @relation(fields: [projectId], references: [id])
+  label     String
+  done      Boolean   @default(false)
+  dueDate   DateTime?
+  order     Int       @default(0) // future-proofing — no reorder endpoint in B3 (plan Decision 1 pattern)
 }
 
 // ── Tasks ────────────────────────────────────────────────────────
@@ -159,7 +207,8 @@ model Task {
   workspace    Workspace  @relation(fields: [workspaceId], references: [id])
   title        String
   description  String?
-  projectId    String?    // scalar only — no @relation until B3 creates Project (see plan Decision 5)
+  projectId    String?
+  project      Project?   @relation(fields: [projectId], references: [id])
   sprintId     String?    // dormant — no @relation, not read/written by any B2 route (see plan Decision 1)
   assigneeId   String?
   assignee     WorkspaceMember? @relation("Assignee", fields: [assigneeId], references: [id])

@@ -2,10 +2,13 @@ import { rawPrisma, withDbReconnectRetry } from '../../src/db/client.js'
 
 // Order matters: children before parents (FK constraints).
 const TABLES = [
+  'Milestone',
+  'ProjectMember',
   'Attachment',
   'Comment',
   'Subtask',
   'Task',
+  'Project',
   'WorkspaceInvite',
   'PasswordResetToken',
   'LoginAttempt',
