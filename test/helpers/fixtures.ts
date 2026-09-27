@@ -33,3 +33,16 @@ export async function addMember(workspaceId: string, role: WorkspaceRole = 'MEMB
   const member = await db.workspaceMember.create({ data: { workspaceId, userId: user.id, role } })
   return { user, member, token: signAccessToken(user.id) }
 }
+
+export async function createProject(
+  workspaceId: string,
+  overrides: Partial<{ name: string; color: string }> = {},
+) {
+  return db.project.create({
+    data: {
+      workspaceId,
+      name: overrides.name ?? 'Test Project',
+      color: overrides.color ?? '#4A90FF',
+    },
+  })
+}

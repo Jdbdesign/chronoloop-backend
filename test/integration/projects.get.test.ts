@@ -3,7 +3,7 @@ import request from 'supertest'
 import { testApp } from '../helpers/testApp.js'
 import { resetDb } from '../helpers/resetDb.js'
 import { db } from '../../src/db/client.js'
-import { createWorkspaceWithOwner, addMember } from '../helpers/fixtures.js'
+import { createWorkspaceWithOwner } from '../helpers/fixtures.js'
 
 describe('GET /projects/:id', () => {
   beforeEach(resetDb)
@@ -21,8 +21,8 @@ describe('GET /projects/:id', () => {
     })
 
     const res = await request(testApp())
-      .get(/projects/)
-      .set('Authorization', Bearer )
+      .get(`/projects/${project.id}`)
+      .set('Authorization', `Bearer ${token}`)
       .set('X-Workspace-Id', workspace.id)
 
     expect(res.status).toBe(200)
@@ -42,8 +42,8 @@ describe('GET /projects/:id', () => {
     await db.task.create({ data: { workspaceId: workspace.id, title: 'T3', projectId: project.id, status: 'DONE' } })
 
     const res = await request(testApp())
-      .get(/projects/)
-      .set('Authorization', Bearer )
+      .get(`/projects/${project.id}`)
+      .set('Authorization', `Bearer ${token}`)
       .set('X-Workspace-Id', workspace.id)
 
     expect(res.body.tasksTotal).toBe(3)
@@ -57,8 +57,8 @@ describe('GET /projects/:id', () => {
     const project = await db.project.create({ data: { workspaceId: other.id, name: 'Not yours', color: '#fff' } })
 
     const res = await request(testApp())
-      .get(/projects/)
-      .set('Authorization', Bearer )
+      .get(`/projects/${project.id}`)
+      .set('Authorization', `Bearer ${token}`)
       .set('X-Workspace-Id', workspace.id)
 
     expect(res.status).toBe(404)
@@ -69,7 +69,7 @@ describe('GET /projects/:id', () => {
 
     const res = await request(testApp())
       .get('/projects/non_existent_id')
-      .set('Authorization', Bearer )
+      .set('Authorization', `Bearer ${token}`)
       .set('X-Workspace-Id', workspace.id)
 
     expect(res.status).toBe(404)

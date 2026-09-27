@@ -12,8 +12,8 @@ describe('POST /workspaces/:id/projects', () => {
     const { workspace, token } = await createWorkspaceWithOwner()
 
     const res = await request(testApp())
-      .post(/workspaces//projects)
-      .set('Authorization', Bearer )
+      .post(`/workspaces/${workspace.id}/projects`)
+      .set('Authorization', `Bearer ${token}`)
       .set('X-Workspace-Id', workspace.id)
       .send({ name: 'Alpha', color: '#4A90FF' })
 
@@ -33,8 +33,8 @@ describe('POST /workspaces/:id/projects', () => {
     const { member: member2 } = await addMember(workspace.id)
 
     const res = await request(testApp())
-      .post(/workspaces//projects)
-      .set('Authorization', Bearer )
+      .post(`/workspaces/${workspace.id}/projects`)
+      .set('Authorization', `Bearer ${token}`)
       .set('X-Workspace-Id', workspace.id)
       .send({ name: 'Team', color: '#00D4AA', memberIds: [member.id, member2.id] })
 
@@ -46,8 +46,8 @@ describe('POST /workspaces/:id/projects', () => {
     const { workspace, token } = await createWorkspaceWithOwner()
 
     const res = await request(testApp())
-      .post(/workspaces//projects)
-      .set('Authorization', Bearer )
+      .post(`/workspaces/${workspace.id}/projects`)
+      .set('Authorization', `Bearer ${token}`)
       .set('X-Workspace-Id', workspace.id)
       .send({
         name: 'Milestoned',
@@ -66,8 +66,8 @@ describe('POST /workspaces/:id/projects', () => {
     const { workspace, token } = await createWorkspaceWithOwner()
 
     const res = await request(testApp())
-      .post(/workspaces//projects)
-      .set('Authorization', Bearer )
+      .post(`/workspaces/${workspace.id}/projects`)
+      .set('Authorization', `Bearer ${token}`)
       .set('X-Workspace-Id', workspace.id)
       .send({ name: 'Bad', color: '#fff', memberIds: ['not-a-real-member-id'] })
 
@@ -80,8 +80,8 @@ describe('POST /workspaces/:id/projects', () => {
     const { token } = await addMember(workspace.id, 'VIEWER')
 
     const res = await request(testApp())
-      .post(/workspaces//projects)
-      .set('Authorization', Bearer )
+      .post(`/workspaces/${workspace.id}/projects`)
+      .set('Authorization', `Bearer ${token}`)
       .set('X-Workspace-Id', workspace.id)
       .send({ name: 'Fail', color: '#fff' })
 
@@ -93,8 +93,8 @@ describe('POST /workspaces/:id/projects', () => {
     const { workspace, token } = await createWorkspaceWithOwner()
 
     const res = await request(testApp())
-      .post(/workspaces//projects)
-      .set('Authorization', Bearer )
+      .post(`/workspaces/${workspace.id}/projects`)
+      .set('Authorization', `Bearer ${token}`)
       .set('X-Workspace-Id', workspace.id)
       .send({ name: 'No color' })
 

@@ -5,60 +5,55 @@ import { resetDb } from '../helpers/resetDb.js'
 import { db } from '../../src/db/client.js'
 import { createWorkspaceWithOwner, addMember } from '../helpers/fixtures.js'
 
-describe('PATCH /projects/:id', () => {
+describe('DELETE /projects/:id', () => {
   beforeEach(resetDb)
 
-  it('updates editable scalar fields', async () => {
+  it('deletes a project and returns 204', async () => {
     const { workspace, token } = await createWorkspaceWithOwner()
-    const project = await db.project.create({ data: { workspaceId: workspace.id, name: 'Original', color: '#fff' } })
+    const project = await db.project.create({ data: { workspaceId: workspace.id, name: 'To Delete', color: '#fff' } })
 
     const res = await request(testApp())
-      .patch(`/projects/${project.id}`)
+      .delete(`/projects/${project.id}`)
       .set('Authorization', `Bearer ${token}`)
       .set('X-Workspace-Id', workspace.id)
-      .send({ name: 'Renamed', status: 'IN_PROGRESS', priority: 'HIGH', color: '#4A90FF' })
 
-    expect(res.status).toBe(200)
-    expect(res.body.name).toBe('Renamed')
-    expect(res.body.status).toBe('IN_PROGRESS')
-    expect(res.body.priority).toBe('HIGH')
+    expect(res.status).toBe(204)
+    expect(await db.project.findUnique({ where: { id: project.id } })).toBeNull()
   })
 
-  it('returns full detail shape after update (rollups + milestones + members)', async () => {
-    const { workspace, token } = await createWorkspaceWithOwner()
+  it('cascades to ProjectMember and Milestone rows', async () => {
+    const { workspace, member, token } = await createWorkspaceWithOwner()
     const project = await db.project.create({
       data: {
         workspaceId: workspace.id,
         name: 'P',
         color: '#fff',
-        milestones: { create: [{ label: 'M1', done: false, order: 0 }] },
+        members: { create: [{ memberId: member.id }] },
+        milestones: { create: [{ label: 'M', done: false, order: 0 }] },
       },
     })
 
-    const res = await request(testApp())
-      .patch(`/projects/${project.id}`)
+    await request(testApp())
+      .delete(`/projects/${project.id}`)
       .set('Authorization', `Bearer ${token}`)
       .set('X-Workspace-Id', workspace.id)
-      .send({ name: 'Updated P' })
 
-    expect(res.body.milestones).toHaveLength(1)
-    expect(res.body.tasksTotal).toBe(0)
-    expect(res.body).not.toHaveProperty('tasks')
+    expect(await db.projectMember.count({ where: { projectId: project.id } })).toBe(0)
+    expect(await db.milestone.count({ where: { projectId: project.id } })).toBe(0)
   })
 
-  it('silently ignores memberIds and milestones in patch body (seed-only, Decision 1)', async () => {
+  it('nullifies Task.projectId on associated tasks (SET NULL)', async () => {
     const { workspace, token } = await createWorkspaceWithOwner()
     const project = await db.project.create({ data: { workspaceId: workspace.id, name: 'P', color: '#fff' } })
+    const task = await db.task.create({ data: { workspaceId: workspace.id, title: 'T', projectId: project.id } })
 
-    const res = await request(testApp())
-      .patch(`/projects/${project.id}`)
+    await request(testApp())
+      .delete(`/projects/${project.id}`)
       .set('Authorization', `Bearer ${token}`)
       .set('X-Workspace-Id', workspace.id)
-      .send({ name: 'Updated', memberIds: ['ignored'], milestones: [{ label: 'ignored' }] })
 
-    expect(res.status).toBe(200)
-    expect(res.body.members).toHaveLength(0)
-    expect(res.body.milestones).toHaveLength(0)
+    const updated = await db.task.findUnique({ where: { id: task.id } })
+    expect(updated?.projectId).toBeNull()
   })
 
   it('returns 404 for a project in a different workspace', async () => {
@@ -67,10 +62,9 @@ describe('PATCH /projects/:id', () => {
     const project = await db.project.create({ data: { workspaceId: other.id, name: 'Not yours', color: '#fff' } })
 
     const res = await request(testApp())
-      .patch(`/projects/${project.id}`)
+      .delete(`/projects/${project.id}`)
       .set('Authorization', `Bearer ${token}`)
       .set('X-Workspace-Id', workspace.id)
-      .send({ name: 'Hijack' })
 
     expect(res.status).toBe(404)
   })
@@ -81,10 +75,9 @@ describe('PATCH /projects/:id', () => {
     const project = await db.project.create({ data: { workspaceId: workspace.id, name: 'P', color: '#fff' } })
 
     const res = await request(testApp())
-      .patch(`/projects/${project.id}`)
+      .delete(`/projects/${project.id}`)
       .set('Authorization', `Bearer ${token}`)
       .set('X-Workspace-Id', workspace.id)
-      .send({ name: 'Should fail' })
 
     expect(res.status).toBe(403)
   })
