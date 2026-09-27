@@ -38,12 +38,13 @@ describe('resetDb', () => {
 
     // TABLES isn't exported (deliberately — resetDb's job is truncation order, not a
     // public table registry), so this asserts against its actual current shape rather
-    // than a derived count. Update this alongside any future TABLES change (B3+ will add
+    // than a derived count. Update this alongside any future TABLES change (B4+ will add
     // more) — that's this test doing its job, not test debt: it exists specifically to
     // catch a table landing in the wrong child/parent position.
-    expect(executeRawUnsafe).toHaveBeenCalledTimes(11)
-    expect(executeRawUnsafe.mock.calls[0][0]).toContain('"Attachment"')
-    expect(executeRawUnsafe.mock.calls[10][0]).toContain('"User"')
+    // B3 added: Milestone (0), ProjectMember (1), Project (6) — 11 → 14 tables total.
+    expect(executeRawUnsafe).toHaveBeenCalledTimes(14)
+    expect(executeRawUnsafe.mock.calls[0][0]).toContain('"Milestone"')
+    expect(executeRawUnsafe.mock.calls[13][0]).toContain('"User"')
   })
 
   // Demonstrates the actual bug this closes: a table that keeps failing long enough to
